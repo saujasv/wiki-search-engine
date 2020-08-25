@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Data dumps
+data/enwiki-20200801-pages-articles-multistream-index1.txt-p1p30303 
+data/enwiki-20200801-pages-articles-multistream1.xml-p1p30303
