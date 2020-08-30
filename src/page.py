@@ -1,188 +1,115 @@
 from enum import Enum
-from tokenize import tokenize
 import re
 import Stemmer
 
 class Field(Enum):
-    title = 1
-    text = 2
-    infobox = 3
-    categories = 4
-    links = 5
-    references = 6
-    body = 7
+    title = 0
+    infobox = 1
+    categories = 2
+    links = 3
+    references = 4
+    body = 5
+
+    def tag(self):
+        return self.name[0]
 
 class Page:
-    def __init__(self, title=[], text=[], body = [], infobox=[], categories=[], links=[], references=[]):
-        self.title = title
-        self.body = body
-        self.infobox = infobox
-        self.categories = categories
-        self.links = links
-        self.references = references
+    def __init__(self):
+        self.fields = [list() for f in Field]
     
     def set_field(self, field, value):
         if field is None:
             return
-
-        if field == Field.title:
-            self.title = value
-        elif field == Field.text:
-            self.text = value
-        elif field == Field.infobox:
-            self.infobox = value
-        elif field == Field.categories:
-            self.categories = value
-        elif field == Field.links:
-            self.links = value
-        elif field == Field.references:
-            self.references = value
         else:
-            raise ValueError("Invalid field provided")
+            try:
+                self.fields[field.value] = value
+            except IndexError:
+                raise ValueError("Invalid field provided")
     
     def add_to_field(self, field, value):
         if field is None:
             return
-
-        if field == Field.body:
-            self.body.append(value)
-        elif field == Field.infobox:
-            self.infobox.append(value)
-        elif field == Field.categories:
-            self.categories.append(value)
-        elif field == Field.links:
-            self.links.append(value)
-        elif field == Field.references:
-            self.references.append(value)
         else:
-            raise ValueError("Cannot add to field")
-    
-    def parse_citation(self, token_stream, stemmer):
-        mode = 'key'
-        while True:
-            tok, tag = next(token_stream)
-            if tag == 'close_braces':
-                return token_stream
-            elif tag == 'equal':
-                mode = 'value'
-            elif tag == 'bar':
-                mode = 'key'
-            elif tag == 'word' and mode == 'value':
-                self.references.append(stemmer.stemWord(tok.lower()))
-            elif tag == 'open_double_square' and mode == 'value':
-                token_stream = self.parse_link(token_stream, Field.references, stemmer)
-            elif tag == 'open_braces':
-                tok, tag = next(token_stream)
-                while tag != 'close_braces':
-                    tok, tag = next(token_stream)
-    
-    def parse_reference(self, token_stream, stemmer):
-        while True:
-            tok, tag = next(token_stream)
-            if tok == "</ref>":
-                return token_stream
-            elif tag == 'word':
-                self.references.append(stemmer.stemWord(tok.lower()))
-            elif tag == 'open_double_square':
-                token_stream = self.parse_link(token_stream, Field.references, stemmer)
-            elif tag == 'open_braces':
-                tok, tag = next(token_stream)
-                if re.match(r'[Cc]ite', tok):
-                    token_stream = self.parse_citation(token_stream, stemmer)
-                else:
-                    while tag != 'close_braces':
-                        tok, tag = next(token_stream)
-
-    
-    def parse_link(self, token_stream, field, stemmer):
-        tok, tag = next(token_stream)
-        first_tok = tok
-        if first_tok == ':':
-            tok, tag = next(token_stream)
-        if re.match(r'[Cc]ategory', tok):
-            tok, tag = next(token_stream)
-            if tok == ':':
-                tok, tag = next(token_stream)
-                while tag != 'close_double_square':
-                    self.categories.append(stemmer.stemWord(tok.lower()))
-                    tok, tag = next(token_stream)
-            else:
-                self.add_to_field(field, stemmer.stemWord(tok.lower()))
-                while tag != 'close_double_square':
-                    self.add_to_field(field, stemmer.stemWord(tok.lower()))
-                    tok, tag = next(token_stream)
-        elif re.match(r'[Ff]ile', tok):
-            tok, tag = next(token_stream)
-            if tok == ':':
-                tok, tag = next(token_stream)
-                while tag != 'close_double_square':
-                    tok, tag = next(token_stream)
-            else:
-                self.add_to_field(field, stemmer.stemWord(tok.lower()))
-                while tag != 'close_double_square':
-                    self.add_to_field(field, stemmer.stemWord(tok.lower()))
-                    tok, tag = next(token_stream)
-        elif tag == 'word':
-            buffer = [tok]
-            tok, tag = next(token_stream)
-            while tag != 'close_double_square':
-                if tag == 'bar':
-                    buffer = list()
-                else:
-                    buffer.append(tok)
-                tok, tag = next(token_stream)
-            for w in buffer:
-                self.add_to_field(field, stemmer.stemWord(w.lower()))
-        return token_stream
-
-    def parse_infobox(self, token_stream, stemmer):
-        mode = 'key'
-        while True:
-            tok, tag = next(token_stream)
-            if tag == 'close_braces':
-                return token_stream
-            elif tag == 'equal':
-                mode = 'value'
-            elif tag == 'bar':
-                mode = 'key'
-            elif tag == 'word' and mode == 'value':
-                self.infobox.append(stemmer.stemWord(tok.lower()))
-            elif tag == 'open_double_square' and mode == 'value':
-                token_stream = self.parse_link(token_stream, Field.infobox, stemmer)
-            elif tag == 'open_braces':
-                tok, tag = next(token_stream)
-                if re.match(r'[Cc]ite', tok):
-                    token_stream = self.parse_citation(token_stream, stemmer)
-                else:
-                    while tag != 'close_braces':
-                        tok, tag = next(token_stream)
-            elif tag == 'open_tag' and re.match(r'<ref[^>]*>', tok):
-                token_stream = self.parse_reference(token_stream, stemmer)
-    
-    def parse_text(self, text, stemmer):
-        token_stream = tokenize(text)
-
-        while True:
             try:
-                tok, tag = next(token_stream)
-                if tag == 'open_braces':
-                    tok, tag = next(token_stream)
-                    if re.match(r'[Ii]nfobox', tok):
-                        token_stream = self.parse_infobox(token_stream, stemmer)
-                    elif re.match(r'[Cc]ite', tok):
-                        token_stream = self.parse_reference(token_stream, stemmer)
-                    else:
-                        while tag != 'close_braces':
-                            tok, tag = next(token_stream)
-                elif tag == 'open_double_square':
-                    token_stream = self.parse_link(token_stream, Field.body, stemmer)
-                elif tag == 'word':
-                    self.body.append(stemmer.stemWord(tok.lower()))
-                elif tag == 'open_tag' and re.match(r'<ref[^>]*>', tok):
-                    token_stream = self.parse_reference(token_stream, stemmer)
-            except StopIteration:
-                break
+                self.fields[field.value].append(value)
+            except IndexError:
+                raise ValueError("Cannot add to field")
+
+    def parse_template(self, template):
+        template_text = ""
+        for kvp in template.split('|')[1:]:
+            if '=' in kvp:
+                key, *value = kvp.split('=')
+                if not 'url' in key and not 'doi' in key:
+                    template_text += ' '.join(value)
+        return template_text
+
+    def process_field(self, field, field_text, stemmer, stopwords):
+        punctuation_regex = re.compile(r"[!\"#$%&\'\(\)\*\+,\-./:;—<=>\?@[\\\]\^_`\{\|\}~]")
+        number_regex = re.compile(r"[0-9.,]+")
+        # range_regex = re.compile(r"[0-9.,–\-]+")
+
+        for tok in field_text.split():
+            w = tok.lower().strip('!\"#$%&\'()\*+,-./:;—<=>?@[\\]\^_`{|}~')
+            if w in stopwords:
+                continue
+            elif number_regex.fullmatch(w):
+                if field == Field.references:
+                    continue
+                if len(w) <= 4:
+                    self.fields[field.value].append(w)
+            elif len(w) >= 3:
+                if not punctuation_regex.search(w):
+                    self.fields[field.value].append(stemmer.stemWord(w))
+
+    def process_internal_link(self, mo):
+        return mo.group(1) + mo.group(2).split('|')[-1] + mo.group(3)
     
-    def index(self):
-        # print("page done")
-        pass
+    def parse_text(self, text, stemmer, stopwords):
+        fields = ["" for f in Field]
+
+        # Remove comments
+        text = re.sub(r"(?=<!--).*?-->", "", text)
+
+        # Remove math formulae
+        text = re.sub(r"(?=<math>).*?</math>", "", text)
+
+        # Remove tags
+        text = re.sub(r"</?[^>/]*/?>", "", text)
+
+        # Remove all non-infobox and non-reference templates that are not nested
+        text = re.sub(r"{{(?!([Ii]nfobox|[Cc]ite))[^{}]+}}", "", text)
+
+        # Remove all non-infobox and non-reference templates that are at a second level of nesting
+        text = re.sub(r"{{(?!([Ii]nfobox|[Cc]ite))[^{}]+}}", "", text)
+
+        # Extract external links
+        for mo in re.finditer(r"\[(?!\[)([^\]]+)\](?!\])", text):
+            fields[Field.links.value] += ' '.join(mo.group(1).split()[1:]) + ' '
+        text = re.sub(r"\[(?!\[)[^\]]+\](?!\])", "", text)
+
+        # Extract categories
+        for mo in re.finditer(r"\[\[:?[Cc]ategory:([^\]]+)\]\]", text):
+            fields[Field.categories.value] += mo.group(1) + " "
+        text = re.sub(r"\[\[:?[Cc]ategory:[^\]]+\]\]", "", text)
+
+        text = re.sub(r"(\w*)\[\[([^\]]+)\]\](\w*)", self.process_internal_link, text)
+
+        # Extract references
+        for mo in re.finditer(r"{{([Cc]ite [^{}]+)}}", text):
+            fields[Field.references.value] += self.parse_template(mo.group(1)) + " "
+        text = re.sub(r"{{[Cc]ite [^{}]+}}", "", text)
+
+        # Extract infoboxes
+        for mo in re.finditer(r"{{([Ii]nfobox [^{}]+)}}", text):
+            fields[Field.infobox.value] += self.parse_template(mo.group(1)) + " "
+        text = re.sub(r"{{[Ii]nfobox [^{}]+}}", "", text)
+
+        # Remove file references
+        text = re.sub(r"\[\[:?[Ff]ile:[^\]]+\]\]", "", text)
+
+        # Only the body is left
+        fields[Field.body.value] = text
+
+        for f in Field:
+            self.process_field(f, fields[f.value], stemmer, stopwords)
