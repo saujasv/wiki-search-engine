@@ -29,3 +29,17 @@ class InvertedIndex:
     def write_to_file(self, f):
         for k in sorted(self.postings.keys()):
             f.write("{}:{}\n".format(k, '|'.join(self.postings[k])))
+    
+    def get_postings(self, term, field=None):
+        postings = self.postings[term]
+        if field:
+            postings = [p for p in postings if field in p]
+        return postings
+    
+    @classmethod
+    def from_file(cls, path):
+        index = cls()
+        for line in open(path, 'r'):
+            key, postings = line.split(':')
+            index.postings[key] = postings.split('|')
+        return index

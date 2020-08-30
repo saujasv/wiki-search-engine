@@ -16,6 +16,7 @@ class Field(Enum):
 class Page:
     def __init__(self):
         self.fields = [list() for f in Field]
+        self.count = 0
     
     def set_field(self, field, value):
         if field is None:
@@ -47,7 +48,7 @@ class Page:
     def process_field(self, field, field_text, stemmer, stopwords):
         punctuation_regex = re.compile(r"[!\"#$%&\'\(\)\*\+,\-./:;—<=>\?@[\\\]\^_`\{\|\}~]")
         number_regex = re.compile(r"[0-9.,]+")
-        # range_regex = re.compile(r"[0-9.,–\-]+")
+        range_regex = re.compile(r"[0-9.,–\-]+")
 
         for tok in field_text.split():
             w = tok.lower().strip('!\"#$%&\'()\*+,-./:;—<=>?@[\\]\^_`{|}~')
@@ -58,9 +59,21 @@ class Page:
                     continue
                 if len(w) <= 4:
                     self.fields[field.value].append(w)
+                    self.count += 1
+            elif range_regex.fullmatch(w):
+                if field == Field.references:
+                    continue
+                else:
+                    if '-' in w:
+                        l = w.split('-')
+                        self.count += len(l)
+                    elif '–' in w:
+                        l = w.split('–')
+                        self.count += len(l)
             elif len(w) >= 3:
                 if not punctuation_regex.search(w):
                     self.fields[field.value].append(stemmer.stemWord(w))
+                    self.count += 1
 
     def process_internal_link(self, mo):
         return mo.group(1) + mo.group(2).split('|')[-1] + mo.group(3)
