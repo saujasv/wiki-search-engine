@@ -1,3 +1,4 @@
 #/bin/bash
 
-python src/parse.py $1 $2/wiki.index $3
+./src/subindex.sh $1 $3
+python src/merge.py $2 $3 `cat $1 | cut -d\| -f2`

@@ -8,6 +8,7 @@ import argparse
 from nltk.corpus import stopwords
 import numpy as np
 import heapq
+from single_file_index import SingleFileIndex
 
 BUCKETS = [
     r"^[,.0-9]",
@@ -27,11 +28,11 @@ BUCKETS = [
 ]
 
 class InvertedIndex:
-    def __init__(self, index_prefix, buckets=BUCKETS, block_size=10000000, docid=0):
+    def __init__(self, index_prefix, buckets=BUCKETS, n_docs=0):
         self.postings = defaultdict(list)
         self.title_buffer = list()
         self.doclength_buffer = list()
-        self.docid = docid
+        self.n_docs = n_docs
         self.buckets = buckets
         self.block_size = block_size
         self.current_postings_count = 0
@@ -45,9 +46,8 @@ class InvertedIndex:
     def save_index(self):
         with open(os.path.join(self.index_prefix, "meta.json"), 'w') as f:
             metadata = {
-                "docid": self.docid,
-                "buckets": self.buckets,
-                "block_size": self.block_size
+                "n_docs": self.n_docs,
+                "buckets": self.buckets
             }
             json.dump(metadata, f)
     
@@ -56,38 +56,8 @@ class InvertedIndex:
         with open(os.path.join(path, "meta.json"), 'r') as f:
             metadata = json.load(f)
         
-        return cls(path, metadata['buckets'], metadata['block_size'], metadata['docid'])
-    
-    def update(self, page, title):
-        self.docid += 1
-        
-        counters = list()
-        page_counter = Counter()
-        for f in Field:
-            field_counter = Counter()
-            for w in page.fields[f.value]:
-                field_counter[w] += 1
-                page_counter[w] += 1
-            counters.append(field_counter)
-        
-        for w in page_counter:
-            counts = [field_counter[w] for field_counter in counters]
-            s = str(self.docid)
-            for f in Field:
-                if counts[f.value] > 0:
-                    s += f.tag() + str(counts[f.value])
-            self.postings[w].append(s)
-            self.current_postings_count += 1
+        return cls(path, buckets=metadata['buckets'], n_docs=metadata['n_docs'])
 
-        self.title_buffer.append(title)
-        self.doclength_buffer.append(np.sqrt(np.sum(np.square(list(page_counter.values())))))
-        
-        if self.current_postings_count > self.block_size:
-            self.write_block()
-            self.postings = defaultdict(list)
-            self.current_postings_count = 0
-            self.title_buffer = list()
-            self.doclength_buffer = list()
     
     def load_single_file_postings(self):
         if len(self.index_files) > 1:
@@ -106,14 +76,14 @@ class InvertedIndex:
         return postings, df
     
     @classmethod
-    def merge(cls, path, indices):
-        merged = cls(path)
+    def merge(cls, path, indices, buckets=BUCKETS):
+        merged = cls(path, buckets=buckets)
         for index in indices:
-            if len(index.index_files) > 1:
+            if not isinstance(index, SingleFileIndex):
                 raise Exception("Can merge only single-file indices.")
         
         for index in indices:
-            idx_postings, idx_df = index.load_single_file_postings()
+            idx_postings, idx_df = index.load_postings()
             ordered_keys = list(idx_postings.keys())
             n_keys = len(ordered_keys)
 
@@ -124,9 +94,9 @@ class InvertedIndex:
                 
                 curr_file = merged.index_files[j]
                 curr_postings = merged.postings_from_file(curr_file)
-                
+            
                 while re.match(b, ordered_keys[i]):
-                    curr_postings[ordered_keys[i]].extend(idx_postings.postings[ordered_keys[i]])
+                    curr_postings[ordered_keys[i]].extend(idx_postings[ordered_keys[i]])
                     i += 1
                     if i >= n_keys:
                         break
@@ -134,52 +104,34 @@ class InvertedIndex:
                 merged.write_to_file(curr_file, curr_postings)
                 if i >= n_keys:
                     break
+            
+            titles = merged.get_all_titles()
+            idx_titles = index.get_titles()
+            all_titles = {**titles, **idx_titles}
+            with open(merged.titles_path, 'w') as f:
+                f.write('\n'.join(["{}||{}".format(d, all_titles[d]) for d in sorted(all_titles.keys())]) + '\n')
+                print(len(titles), len(idx_titles), len(all_titles))
+                assert len(titles) + len(idx_titles) == len(all_titles)
+            del titles, idx_titles, all_titles
+
+            lengths = merged.get_all_lengths()
+            idx_lengths = index.get_lengths()
+            all_lengths = {**lengths, **idx_lengths}
+            with open(merged.doclengths_path, 'w') as f:
+                f.write('\n'.join(["{}:{}".format(d, all_lengths[d]) for d in sorted(all_lengths.keys())]) + '\n')
+            del lengths, idx_lengths, all_lengths
+            
+            merged.n_docs += index.n_docs
         
         return merged
-
-    def write_block(self):
-        ordered_keys = sorted(self.postings.keys())
-        n_keys = len(ordered_keys)
-        if n_keys == 0:
-            return
-
-        print("writing block")
-        # print(ordered_keys[0], len(ordered_keys[0]), ordered_keys[0] == ' ', self.postings[ordered_keys[0]])
-
-        i = 0
-        for j, b in enumerate(self.buckets):
-            if not re.match(b, ordered_keys[i]):
-                # print('next_bucket')
-                continue
-            
-            curr_file = self.index_files[j]
-            curr_postings = self.postings_from_file(curr_file)
-            
-            while re.match(b, ordered_keys[i]):
-                curr_postings[ordered_keys[i]].extend(self.postings[ordered_keys[i]])
-                i += 1
-                if i >= n_keys:
-                    break
-
-            self.write_to_file(curr_file, curr_postings)
-            if i >= n_keys:
-                break
-        
-        with open(self.titles_path, 'a') as f:
-            f.write('\n'.join(self.title_buffer) + '\n')
-        
-        with open(self.doclengths_path, 'a') as f:
-            f.write('\n'.join(map(str, self.doclength_buffer)) + '\n')
     
     def write_to_file(self, path, postings=None, order=None):
-        # print("writing to file")
         if postings is None:
             postings = self.postings
         key_order = sorted(postings.keys()) if order is None else order
         with open(path, 'w') as f:
             for k in key_order:
                 f.write("{}:{}:{}\n".format(k, len(postings[k]), '|'.join(postings[k])))
-            # print("written to file")
     
     def parse_posting(self, posting):
         docid = int(re.match(r"^[0-9]+", posting).group())
@@ -204,7 +156,7 @@ class InvertedIndex:
             curr_postings, curr_df = self.postings_and_df_from_file(curr_file)
 
             while re.match(b, term_list[i][1]):
-                postings.append((term_list[i][0], curr_postings[term_list[i][1]], int(curr_df[term_list[i][1]])))
+                postings.append((term_list[i][0], curr_postings[term_list[i][1]], curr_df[term_list[i][1]]))
                 i += 1
                 if i >= n_terms:
                     break
@@ -221,10 +173,9 @@ class InvertedIndex:
             for line in open(path, 'r'):
                 k, i, p = line.strip().split(':')
                 postings[k] = p.split('|')
-                df[k] = i
+                df[k] = int(i)
         except FileNotFoundError:
-            return postings
-
+            return postings, df
         return postings, df
 
     def postings_from_file(self, path):
@@ -242,21 +193,20 @@ class InvertedIndex:
         score_vectors = defaultdict(lambda: np.zeros(6))
         if mask:
             for i, (p_list, df) in enumerate(postings):
-                idf = np.log(self.docid/df)
+                idf = np.log(self.n_docs/df)
                 for p in p_list:
                     doc, tf = self.parse_posting(p)
                     score_vectors[doc] += idf * (np.multiply(mask[i], tf))
         else:
             for i, (p_list, df) in enumerate(postings):
-                idf = np.log(self.docid/df)
+                idf = np.log(self.n_docs/df)
                 for p in p_list:
                     doc, tf = self.parse_posting(p)
                     score_vectors[doc] += idf * tf
 
-
         docs = list(sorted(score_vectors.keys()))
         lengths = self.get_lengths(docs)
-        scores = defaultdict(int)
+        scores = defaultdict(float)
         if mask:
             for d in docs:
                 scores[d] = (np.dot(score_vectors[d], self.weight_vector))
@@ -271,32 +221,54 @@ class InvertedIndex:
         docs = sorted(docids)
         n_docs = len(docids)
         with open(self.titles_path, 'r') as f:
-            i = 0
             j = 0
             for line in f:
-                i += 1
-                if i == docs[j]:
-                    titles[docs[j]] = line.strip()
+                d, t = line.strip().split('||')
+                d = int(d)
+                if d == docs[j]:
+                    titles[d] = t
                     j += 1
                     if j >= n_docs:
                         break
         return titles
 
     def get_lengths(self, docids):
-        lengths = defaultdict(float)
+        lengths = dict()
         docs = sorted(docids)
         n_docs = len(docids)
         with open(self.doclengths_path, 'r') as f:
-            i = 0
             j = 0
             for line in f:
-                i += 1
-                if i == docs[j]:
-                    lengths[docs[j]] = float(line.strip())
+                d, t = line.strip().split(':')
+                d = int(d)
+                if d == docs[j]:
+                    lengths[d] = float(t)
                     j += 1
                     if j >= n_docs:
                         break
         return lengths
+
+    def get_all_titles(self):
+        titles = dict()
+        try:
+            with open(self.titles_path, 'r') as f:
+                for line in f:
+                    docid, title = line.strip().split('||')
+                    titles[int(docid)] = title
+            return titles
+        except FileNotFoundError:
+            return titles
+
+    def get_all_lengths(self):
+        lengths = dict()
+        try:
+            with open(self.doclengths_path, 'r') as f:
+                for line in f:
+                    docid, length = line.strip().split(':')
+                    lengths[int(docid)] = float(length)
+            return lengths
+        except FileNotFoundError:
+            return lengths
     
     def search(self, query_string, k=10, stemmer=None, stopword_list=None):
         punct_regex = re.compile(r"[!\"#$%&\'\(\)\*\+,\-./:;—<=>\?@[\\\]\^_`\{\|\}~]")
@@ -323,6 +295,8 @@ class InvertedIndex:
             top_docs = self.get_top_k(k, self.get_postings(query_terms), field_mask)
         else:
             top_docs = self.get_top_k(k, self.get_postings(query_terms))
+        
+        print(top_docs)
         
         titles = self.get_titles(list(map(lambda x: x[0], top_docs)))
 

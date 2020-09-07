@@ -1,4 +1,4 @@
-from indexer import InvertedIndex
+from split_index import InvertedIndex
 import re
 import Stemmer
 import argparse
