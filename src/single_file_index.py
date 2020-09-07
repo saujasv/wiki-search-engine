@@ -62,7 +62,7 @@ class SingleFileIndex:
         with open(os.path.join(path, "meta.json"), 'r') as f:
             metadata = json.load(f)
         
-        return cls(path, metadata['n_docs'])
+        return cls(path, metadata['n_docs'], rebuild=False)
     
     def update(self, page, title, docid):
         self.n_docs += 1

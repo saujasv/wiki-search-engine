@@ -75,8 +75,8 @@ class InvertedIndex:
         return postings, df
     
     @classmethod
-    def merge(cls, path, indices, buckets=BUCKETS):
-        merged = cls(path, buckets=buckets)
+    def merge(cls, path, indices, bucketing=BUCKETS):
+        merged = cls(path, buckets=bucketing)
         for index in indices:
             if not isinstance(index, SingleFileIndex):
                 raise Exception("Can merge only single-file indices.")
@@ -88,14 +88,15 @@ class InvertedIndex:
 
             i = 0
             for j, b in enumerate(merged.buckets):
-                if not re.match(b, ordered_keys[i]):
+                if len(ordered_keys[i]) >= 2 and not re.match(b, ordered_keys[i]):
                     continue
-                
+
                 curr_file = merged.index_files[j]
                 curr_postings = merged.postings_from_file(curr_file)
-            
-                while re.match(b, ordered_keys[i]):
-                    curr_postings[ordered_keys[i]].extend(idx_postings[ordered_keys[i]])
+
+                while len(ordered_keys[i]) < 2 or re.match(b, ordered_keys[i]):
+                    if len(ordered_keys[i]) >= 2:
+                        curr_postings[ordered_keys[i]].extend(idx_postings[ordered_keys[i]])
                     i += 1
                     if i >= n_keys:
                         break
@@ -109,7 +110,7 @@ class InvertedIndex:
             all_titles = {**titles, **idx_titles}
             with open(merged.titles_path, 'w') as f:
                 f.write('\n'.join(["{}||{}".format(d, all_titles[d]) for d in sorted(all_titles.keys())]) + '\n')
-                print(len(titles), len(idx_titles), len(all_titles))
+                # print(len(titles), len(idx_titles), len(all_titles))
                 assert len(titles) + len(idx_titles) == len(all_titles)
             del titles, idx_titles, all_titles
 
@@ -148,13 +149,13 @@ class InvertedIndex:
         postings = list()
 
         for j, b in enumerate(self.buckets):
-            if not re.match(b, term_list[i][1]):
+            if not re.search(b, term_list[i][1]):
                 continue
 
             curr_file = self.index_files[j]
             curr_postings, curr_df = self.postings_and_df_from_file(curr_file)
 
-            while re.match(b, term_list[i][1]):
+            while re.search(b, term_list[i][1]):
                 postings.append((term_list[i][0], curr_postings[term_list[i][1]], curr_df[term_list[i][1]]))
                 i += 1
                 if i >= n_terms:
@@ -192,16 +193,18 @@ class InvertedIndex:
         score_vectors = defaultdict(lambda: np.zeros(6))
         if mask:
             for i, (p_list, df) in enumerate(postings):
-                idf = np.log(self.n_docs/df)
-                for p in p_list:
-                    doc, tf = self.parse_posting(p)
-                    score_vectors[doc] += idf * (np.multiply(mask[i], tf))
+                if df > 0:
+                    idf = np.log(self.n_docs/df)
+                    for p in p_list:
+                        doc, tf = self.parse_posting(p)
+                        score_vectors[doc] += idf * (np.multiply(mask[i], tf))
         else:
             for i, (p_list, df) in enumerate(postings):
-                idf = np.log(self.n_docs/df)
-                for p in p_list:
-                    doc, tf = self.parse_posting(p)
-                    score_vectors[doc] += idf * tf
+                if df > 0:
+                    idf = np.log(self.n_docs/df)
+                    for p in p_list:
+                        doc, tf = self.parse_posting(p)
+                        score_vectors[doc] += idf * tf
 
         docs = list(sorted(score_vectors.keys()))
         lengths = self.get_lengths(docs)
