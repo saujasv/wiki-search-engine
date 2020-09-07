@@ -34,7 +34,6 @@ class InvertedIndex:
         self.doclength_buffer = list()
         self.n_docs = n_docs
         self.buckets = buckets
-        self.block_size = block_size
         self.current_postings_count = 0
         self.index_prefix = index_prefix
         self.titles_path = os.path.join(index_prefix, "titles.txt")
@@ -295,8 +294,6 @@ class InvertedIndex:
             top_docs = self.get_top_k(k, self.get_postings(query_terms), field_mask)
         else:
             top_docs = self.get_top_k(k, self.get_postings(query_terms))
-        
-        print(top_docs)
         
         titles = self.get_titles(list(map(lambda x: x[0], top_docs)))
 

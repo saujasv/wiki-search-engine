@@ -3,6 +3,7 @@ import re
 import Stemmer
 import argparse
 from nltk.corpus import stopwords
+import time
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
@@ -15,5 +16,10 @@ if __name__ == "__main__":
     stopword_list = list(stopwords.words('english'))
 
     for line in args.queries_file:
-        print(*index.search(line.strip(), stemmer=stemmer, stopword_list=stopword_list), sep='\n', end='\n')
+        k, query = line.strip().split(',')
+        k = int(k)
+        start = time.time()
+        print(*index.search(query, k=k, stemmer=stemmer, stopword_list=stopword_list), sep='\n', end='\n')
+        end = time.time()
+        print("{} {}".format(end - start, (end - start)/k))
         print()
