@@ -6,25 +6,14 @@ from nltk.corpus import stopwords
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("index_file", type=str)
-    argparser.add_argument("query", type=str, nargs='+')
+    argparser.add_argument("index_path", type=str)
+    argparser.add_argument("queries_file", type=argparse.FileType('r'))
     args = argparser.parse_args()
 
-    index = InvertedIndex.from_file(args.index_file)
+    index = InvertedIndex.load(args.index_path)
     stemmer = Stemmer.Stemmer('english')
-    stopwords = list(stopwords.words('english'))
+    stopword_list = list(stopwords.words('english'))
 
-    query_words = list()
-    field = None
-    for tok in args.query:
-        tok = tok.lower()
-        if ':' in tok:
-            field, word = tok.split(':')
-            if not word in stopwords:
-                query_words.append((field, stemmer.stemWord(word)))
-        else:
-            query_words.append((field, stemmer.stemWord(tok)))
-    
-    print(query_words)
-
-    print('\n'.join(["{}: {}".format(t, ' '.join(index.get_postings(t, f))) for f, t in query_words]))
+    for line in args.queries_file:
+        print(*index.search(line.strip(), stemmer=stemmer, stopword_list=stopword_list), sep='\n', end='\n')
+        print()

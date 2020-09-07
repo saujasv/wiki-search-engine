@@ -3,12 +3,12 @@ import re
 import Stemmer
 
 class Field(Enum):
-    title = 0
-    infobox = 1
-    categories = 2
-    links = 3
-    references = 4
-    body = 5
+    title = 0 # .3
+    infobox = 1 # .2
+    categories = 2 # .15
+    links = 3 # .05
+    references = 4 # .05
+    body = 5 # .25
 
     def tag(self):
         return self.name[0]
@@ -45,14 +45,14 @@ class Page:
                     template_text += ' '.join(value)
         return template_text
 
-    def process_field(self, field, field_text, stemmer, stopwords):
+    def process_field(self, field, field_text, stemmer, stopword_list):
         punctuation_regex = re.compile(r"[!\"#$%&\'\(\)\*\+,\-./:;—<=>\?@[\\\]\^_`\{\|\}~]")
         number_regex = re.compile(r"[0-9.,]+")
         range_regex = re.compile(r"[0-9.,–\-]+")
 
         for tok in field_text.split():
             w = tok.lower().strip('!\"#$%&\'()\*+,-./:;—<=>?@[\\]\^_`{|}~')
-            if w in stopwords:
+            if w in stopword_list:
                 continue
             elif number_regex.fullmatch(w):
                 if field == Field.references:
@@ -65,11 +65,12 @@ class Page:
                     continue
                 else:
                     if '-' in w:
-                        l = w.split('-')
-                        self.count += len(l)
+                        l = [n for n in w.split('-') if 0 < len(n) <= 4]
                     elif '–' in w:
-                        l = w.split('–')
-                        self.count += len(l)
+                        l = [n for n in w.split('–') if 0 < len(n) <= 4]
+
+                    self.fields[field.value].extend(l)
+                    self.count += len(l)
             elif len(w) >= 3:
                 if not punctuation_regex.search(w):
                     self.fields[field.value].append(stemmer.stemWord(w))
@@ -78,7 +79,7 @@ class Page:
     def process_internal_link(self, mo):
         return mo.group(1) + mo.group(2).split('|')[-1] + mo.group(3)
     
-    def parse_text(self, text, stemmer, stopwords):
+    def parse_text(self, text, stemmer, stopword_list):
         fields = ["" for f in Field]
 
         # Remove comments
@@ -125,4 +126,4 @@ class Page:
         fields[Field.body.value] = text
 
         for f in Field:
-            self.process_field(f, fields[f.value], stemmer, stopwords)
+            self.process_field(f, fields[f.value], stemmer, stopword_list)
